@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Smart Campus Navigator – Simulation & Performance</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: #fafafa;
+        }
+        #map {
+            height: 65vh;
+            width: 96%;
+            margin: 10px auto;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+        }
+        #controls {
+            background: #fff;
+            padding: 12px;
+            border-radius: 10px;
+            margin: 10px auto;
+            width: 96%;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+        }
+        .btn {
+            padding: 5px 10px;
+            margin: 5px;
+            border: none;
+            cursor: pointer;
+            border-radius: 6px;
+            background-color: #3498db;
+            color: white;
+        }
+        .btn:hover {
+            background-color: #2980b9;
+        }
+        #status {
+            font-size: 14px;
+            color: #0c6b10;
+            display: block;
+            margin-top: 10px;
+            font-weight: bold;
+        }
+        #chartContainer {
+            width: 96%;
+            height: 250px;
+            margin: 10px auto;
+            background: #fff;
+            border-radius: 10px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+            padding: 10px;
+        }
+    </style>
+</head>
+<body>
+
+<div id="controls">
+    <b>Manual Entry:</b><br>
+    Latitude: <input id="lat" type="text" placeholder="e.g. 13.3550" size="10">
+    Longitude: <input id="lon" type="text" placeholder="e.g. 74.7928" size="10">
+    Radius (m): <input id="radius" type="number" value="150" size="6">
+    <button class="btn" onclick="sendCoords()">Send</button>
+    <hr>
+    <b>Simulation Controls:</b><br>
+    Speed:
+    <select id="speed">
+        <option value="1000">Fast</option>
+        <option value="3000" selected>Normal</option>
+        <option value="5000">Slow</option>
+    </select>
+    <button class="btn" onclick="startSim()">Start Simulation</button>
+    <button class="btn" onclick="stopSim()">Stop Simulation</button>
+    <span id="status"></span>
+</div>
+
+<div id="map"></div>
+
+<div id="chartContainer">
+    <canvas id="rttChart"></canvas>
+</div>
+
+<script>
+    // Initialize map centered on MIT Manipal
+    var map = L.map('map').setView([{{ campus_lat }}, {{ campus_lon }}], 17);
+
+    // Reliable OSM base map
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+    // Campus facilities (same as backend)
+    var facilities = [
+        {name: "Main Gate", lat: 13.3538, lon: 74.7921},
+        {name: "NLH", lat: 13.3546, lon: 74.7929},
+        {name: "Food Court", lat: 13.3553, lon: 74.7934},
+        {name: "Innovation Center", lat: 13.3560, lon: 74.7939},
+        {name: "Hostel Block", lat: 13.3565, lon: 74.7945}
+    ];
+
+    // Show all facility markers at start
+    facilities.forEach(f => {
+        L.marker([f.lat, f.lon], {
+            icon: L.icon({
+                iconUrl: 'https://maps.google.com/mapfiles/ms/icons/red-dot.png',
+                iconSize: [32, 32]
+            })
+        }).addTo(map).bindPopup(f.name);
+    });
+
+    // Main user marker
+    var marker = L.marker([{{ campus_lat }}, {{ campus_lon }}], {
+        icon: L.icon({
+            iconUrl: 'https://maps.google.com/mapfiles/ms/icons/green-dot.png',
+            iconSize: [32, 32]
+        })
+    }).addTo(map).bindPopup("MIT Manipal Campus").openPopup();
+
+    // Chart setup
+    const ctx = document.getElementById('rttChart').getContext('2d');
+    const chartData = { labels: [], datasets: [
+        { label: 'RTT (ms)', borderColor: 'rgb(75,192,192)', fill: false, data: [] },
+        { label: 'Server Time (ms)', borderColor: 'rgb(255,99,132)', fill: false, data: [] }
+    ]};
+    const rttChart = new Chart(ctx, { type: 'line', data: chartData, options: {
+        responsive: true,
+        scales: { x: { title: { display: true, text: 'Request #' } },
+                  y: { title: { display: true, text: 'Time (ms)' } } }
+    }});
+
+    // Function to send coordinates
+    async function sendCoords(isSimulated=false) {
+        const lat = parseFloat(document.getElementById('lat').value);
+        const lon = parseFloat(document.getElementById('lon').value);
+        const radius = parseFloat(document.getElementById('radius').value);
+        const t0 = performance.now();
+
+        const res = await fetch('/nearest', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({lat, lon, radius_m: radius})
+        });
+        const data = await res.json();
+        const rtt = performance.now() - t0;
+
+        // Build unified status message
+        let msg = `Nearby: ${data.count} | RTT: ${rtt.toFixed(2)} ms | Server: ${data.server_processing_ms} ms`;
+        if (data.nearby.length > 0) {
+            msg += ` | Closest: ${data.nearby[0].name}`;
+        }
+        msg += ` | Current Location: (${lat.toFixed(5)}, ${lon.toFixed(5)})`;
+
+        document.getElementById('status').innerText = msg;
+
+        // Chart update
+        chartData.labels.push(chartData.labels.length + 1);
+        chartData.datasets[0].data.push(rtt.toFixed(2));
+        chartData.datasets[1].data.push(data.server_processing_ms);
+        if (chartData.labels.length > 20) {
+            chartData.labels.shift();
+            chartData.datasets.forEach(d => d.data.shift());
+        }
+        rttChart.update();
+
+        // Clear previous blue markers
+        map.eachLayer(l => {
+            if (l instanceof L.Marker && l.options.icon.options.iconUrl.includes('blue-dot')) {
+                map.removeLayer(l);
+            }
+        });
+
+        // Add nearby facility markers (blue)
+        data.nearby.forEach(p => {
+            L.marker([p.lat, p.lon], {icon: L.icon({
+                iconUrl: 'https://maps.google.com/mapfiles/ms/icons/blue-dot.png',
+                iconSize: [32, 32]
+            })})
+            .addTo(map)
+            .bindPopup(`${p.name}<br>Distance: ${p.distance} m`);
+        });
+    }
+
+    // Simulation coordinates
+    var simCoords = [
+        [13.3538, 74.7921],
+        [13.3546, 74.7929],
+        [13.3553, 74.7934],
+        [13.3560, 74.7939],
+        [13.3565, 74.7945]
+    ];
+    var simIndex = 0, simTimer = null;
+
+    function startSim() {
+        const delay = parseInt(document.getElementById('speed').value);
+        document.getElementById('status').innerText = "Simulation running...";
+        simTimer = setInterval(() => {
+            if (simIndex >= simCoords.length) simIndex = 0;
+            let [lat, lon] = simCoords[simIndex++];
+            document.getElementById('lat').value = lat;
+            document.getElementById('lon').value = lon;
+            marker.setLatLng([lat, lon]).bindPopup(`Simulated position`).openPopup();
+            sendCoords(true);
+        }, delay);
+    }
+
+    function stopSim() {
+        clearInterval(simTimer);
+        document.getElementById('status').innerText = "Simulation stopped.";
+    }
+
+    // Map click → manual location entry
+    map.on('click', e => {
+        document.getElementById('lat').value = e.latlng.lat.toFixed(6);
+        document.getElementById('lon').value = e.latlng.lng.toFixed(6);
+        sendCoords();
+    });
+</script>
+
+</body>
+</html>

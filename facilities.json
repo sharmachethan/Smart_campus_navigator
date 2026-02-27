@@ -1,0 +1,10 @@
+[
+  {"name": "Main Gate", "type": "entrance", "lat": 13.3538, "lon": 74.7915},
+  {"name": "Library", "type": "study", "lat": 13.3535, "lon": 74.7922},
+  {"name": "NLH Block", "type": "academic", "lat": 13.3545, "lon": 74.7918},
+  {"name": "Innovation Center", "type": "lab", "lat": 13.3551, "lon": 74.7926},
+  {"name": "AB5 Building", "type": "academic", "lat": 13.3555, "lon": 74.7929},
+  {"name": "Food Court", "type": "food", "lat": 13.3562, "lon": 74.7934},
+  {"name": "Hostel Block 17", "type": "residence", "lat": 13.3569, "lon": 74.7940},
+  {"name": "Student Parking Area", "type": "parking", "lat": 13.3572, "lon": 74.7930}
+]
